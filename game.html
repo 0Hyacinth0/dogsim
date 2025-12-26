@@ -145,16 +145,16 @@
         <canvas id="gameCanvas" width="800" height="800"></canvas>
         
         <div id="ui">
-            <div class="stat-label">狗状态 (HP)</div>
+            <div class="stat-label">白狗气血值</div>
             <div class="hp-container">
                 <div id="hpFill" class="hp-fill"></div>
                 <div id="hpText" class="hp-text">100%</div>
             </div>
             
-            <div class="stat-label">傲气 (Lives)</div>
+            <div class="stat-label">傲气(初始携带1层)</div>
             <div id="heartContainer" class="hearts">❤️❤️</div>
             
-            <div class="stat-label" style="margin-top: 10px;">⏱️ 坚持时间</div>
+            <div class="stat-label" style="margin-top: 10px;">用时</div>
             <div style="font-size: 20px; font-weight: bold; font-family: monospace;">
                 <span id="time">0.0</span>s
             </div>
@@ -388,7 +388,7 @@
             triggerDamageEffect();
 
             if (hitCount >= 2) {
-                gameOver(false, "失败：傲气破碎！");
+                gameOver(false, "失败：被咬了两次！");
             }
         }
 
