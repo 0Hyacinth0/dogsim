@@ -138,6 +138,29 @@
             transform: translateY(1px);
         }
 
+        /* 暂停模态框 */
+        #pauseModal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        #pauseModal.active { display: flex; }
+        .modal-content {
+            background: #222;
+            padding: 20px 40px;
+            border-radius: 12px;
+            border: 1px solid #444;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .modal-content h2 { margin-top: 0; color: #eee; }
+        .modal-content button { width: 100%; margin-top: 10px; }
+
         /* 移动端摇杆 */
         #joystickZone {
             position: fixed;
@@ -173,9 +196,38 @@
                 width: 95vw;
                 height: auto;
             }
+            /* 移动端 UI 调整：置顶横向排列 */
             #ui {
-                transform: scale(0.8);
-                transform-origin: top left;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                width: 100%;
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                background: rgba(0, 0, 0, 0.6);
+                border-radius: 0;
+                border: none;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                padding: 10px 15px;
+                transform: none;
+            }
+            /* 隐藏标签文字，只保留图标/数值 */
+            #ui .stat-label { display: none; }
+            #ui .hp-container { 
+                width: 100px; 
+                margin: 0 10px; 
+                height: 14px;
+            }
+            #ui .hearts { 
+                font-size: 18px; 
+                margin: 0; 
+            }
+            #ui div[style*="font-size: 20px"] {
+                font-size: 16px !important;
             }
         }
     </style>
@@ -206,6 +258,14 @@
         <div id="message"></div>
     </div>
     
+    <div id="pauseModal">
+        <div class="modal-content">
+            <h2>已暂停</h2>
+            <button onclick="togglePause()">继续游戏</button>
+            <button onclick="resetGame()">重新开始</button>
+        </div>
+    </div>
+
     <div id="joystickZone">
         <div id="joystickKnob"></div>
     </div>
@@ -302,8 +362,7 @@
         keys[e.key] = true;
         
         if (e.key.toLowerCase() === 'p' && gameState.running) {
-            gameState.paused = !gameState.paused;
-            if (!gameState.paused) gameState.lastTime = performance.now();
+            togglePause();
         }
     });
     window.addEventListener('keyup', e => keys[e.key] = false);
@@ -392,6 +451,18 @@
         resetGame();
         requestAnimationFrame(gameLoop);
     }
+    
+    function togglePause() {
+        if (!gameState.running && !gameState.paused) return;
+        gameState.paused = !gameState.paused;
+        const modal = document.getElementById('pauseModal');
+        if (gameState.paused) {
+            modal.classList.add('active');
+        } else {
+            modal.classList.remove('active');
+            gameState.lastTime = performance.now();
+        }
+    }
 
     function resetGame() {
         player.x = CONFIG.centerX;
@@ -432,6 +503,7 @@
         document.getElementById('message').style.display = 'none';
         document.getElementById('damageOverlay').classList.remove('active');
         document.getElementById('gameContainer').style.transform = 'none';
+        document.getElementById('pauseModal').classList.remove('active');
         updateUI();
     }
 
@@ -651,21 +723,6 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // 头顶小血条 (保留，作为辅助)
-        ctx.fillStyle = 'red';
-        ctx.fillRect(dog.x - 15, dog.y - 20, 30, 4);
-        ctx.fillStyle = '#0f0';
-        ctx.fillRect(dog.x - 15, dog.y - 20, 30 * (dog.hp / 100), 4);
-
-        // 暂停遮罩
-        if (gameState.paused) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'white';
-            ctx.font = '40px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText("已暂停", CONFIG.centerX, CONFIG.centerY);
-        }
     }
 
     function gameLoop(timestamp) {
