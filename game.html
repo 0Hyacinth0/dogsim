@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>溜白狗模拟器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body {
             margin: 0;
@@ -136,6 +137,47 @@
         button:active {
             transform: translateY(1px);
         }
+
+        /* 移动端摇杆 */
+        #joystickZone {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            touch-action: none; /* 防止浏览器默认滚动 */
+            display: none; /* 默认隐藏 */
+            z-index: 100;
+        }
+        
+        #joystickKnob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 204, 0, 0.8);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        /* 仅在触摸屏或小屏幕显示 */
+        @media (hover: none) and (pointer: coarse), (max-width: 800px) {
+            #joystickZone { display: block; }
+            canvas {
+                width: 95vw;
+                height: auto;
+            }
+            #ui {
+                transform: scale(0.8);
+                transform-origin: top left;
+            }
+        }
     </style>
 </head>
 <body>
@@ -164,6 +206,10 @@
         <div id="message"></div>
     </div>
     
+    <div id="joystickZone">
+        <div id="joystickKnob"></div>
+    </div>
+
     <div class="controls">WASD或方向键移动并引导狗进入激光</div>
     <div class="controls" style="font-size: 12px;">按 P 键暂停/继续</div>
     <div class="controls" style="font-size: 12px; opacity: 0.7;">制作者: @倾茶茶 | 咻咻@梦江南</div>
@@ -237,6 +283,16 @@
     let hitCount = 0;
     let particles = [];
     
+    // 摇杆状态
+    const joystick = {
+        active: false,
+        x: 0,
+        y: 0,
+        originX: 0,
+        originY: 0,
+        touchId: null
+    };
+
     // 输入控制
     const keys = {};
     window.addEventListener('keydown', e => {
@@ -251,6 +307,73 @@
         }
     });
     window.addEventListener('keyup', e => keys[e.key] = false);
+
+    // 摇杆事件监听
+    const stickZone = document.getElementById('joystickZone');
+    const stickKnob = document.getElementById('joystickKnob');
+    const maxDist = 35; // 摇杆最大移动半径
+
+    stickZone.addEventListener('touchstart', e => {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        joystick.touchId = touch.identifier;
+        joystick.active = true;
+        
+        const rect = stickZone.getBoundingClientRect();
+        joystick.originX = rect.left + rect.width / 2;
+        joystick.originY = rect.top + rect.height / 2;
+        
+        updateJoystick(touch.clientX, touch.clientY);
+    }, {passive: false});
+
+    stickZone.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (!joystick.active) return;
+        
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystick.touchId) {
+                updateJoystick(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+                break;
+            }
+        }
+    }, {passive: false});
+
+    const endJoystick = (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === joystick.touchId) {
+                joystick.active = false;
+                joystick.x = 0;
+                joystick.y = 0;
+                stickKnob.style.transform = `translate(-50%, -50%)`;
+                break;
+            }
+        }
+    };
+    stickZone.addEventListener('touchend', endJoystick);
+    stickZone.addEventListener('touchcancel', endJoystick);
+
+    function updateJoystick(clientX, clientY) {
+        let dx = clientX - joystick.originX;
+        let dy = clientY - joystick.originY;
+        const dist = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
+        
+        // 限制旋钮视觉移动
+        const visualDist = Math.min(dist, maxDist);
+        const knobX = Math.cos(angle) * visualDist;
+        const knobY = Math.sin(angle) * visualDist;
+        stickKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+        
+        // 更新逻辑向量 (归一化)
+        if (dist > 5) { // 死区
+            joystick.x = Math.cos(angle);
+            joystick.y = Math.sin(angle);
+        } else {
+            joystick.x = 0;
+            joystick.y = 0;
+        }
+    }
 
     // 数学工具
     function distToSegment(p, v, w) {
@@ -341,6 +464,12 @@
         if (keys['a'] || keys['ArrowLeft']) dx -= 1;
         if (keys['d'] || keys['ArrowRight']) dx += 1;
         
+        // 摇杆输入覆盖
+        if (joystick.active) {
+            dx = joystick.x;
+            dy = joystick.y;
+        }
+
         if (dx !== 0 || dy !== 0) {
             const length = Math.hypot(dx, dy);
             player.x += (dx / length) * CONFIG.playerSpeed;
