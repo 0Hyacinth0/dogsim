@@ -14,8 +14,11 @@ class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         super().end_headers()
 
+class MyTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
 if __name__ == '__main__':
-    with socketserver.TCPServer((HOST, PORT), MyHTTPRequestHandler) as httpd:
+    with MyTCPServer((HOST, PORT), MyHTTPRequestHandler) as httpd:
         print(f'服务器启动成功！')
         print(f'访问地址: http://localhost:{PORT}/game.html')
         print(f'外网访问: http://59.110.36.83:{PORT}/game.html')
