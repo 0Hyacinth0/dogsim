@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>溜白狗模拟器</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #111;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            cursor: crosshair;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+        }
+        .stat { margin-bottom: 5px; font-size: 18px; }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            font-weight: bold;
+            display: none;
+            text-shadow: 2px 2px 4px #000;
+            text-align: center;
+        }
+        .controls {
+            margin-top: 10px;
+            color: #aaa;
+            font-size: 14px;
+        }
+        button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #ffcc00;
+            border: none;
+            border-radius: 4px;
+            color: #000;
+            font-weight: bold;
+        }
+        button:hover { background: #e6b800; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div class="stat">狗血量: <span id="dogHp">100</span>%</div>
+        <div class="stat">受击次数(初始携带1层傲气): <span id="hits">0</span>/2</div>
+        <div class="stat" style="color: #888;">⏱️耗时: <span id="time">0.0</span>s</div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="800"></canvas>
+    
+    <div id="message"></div>
+    <div class="controls">WASD或方向键移动并尝试把狗带到激光上</div>
+    <div class="controls" style="color: #666;">制作者: @倾茶茶 | 咻咻@梦江南</div>
+    <button onclick="resetGame()">重新开始</button>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // 游戏配置
+    const CONFIG = {
+        radius: 400, // 场地半径
+        centerX: 400,
+        centerY: 400,
+        playerSpeed: 1.5, // 玩家速度
+        playerRadius: 24,
+        dogBaseSpeed: 1.4, // 狗的基础速度
+        dogSlowSpeed: 0.2, // 狗被激光照射时的速度
+        dogRadius: 20,
+        eyeOffset: { x: 0, y: -290 }, // 眼睛相对于中心的位置
+        laserAngle: 0.6, // 激光角度
+        laserLength: 340, // 激光长度
+        dps: 10, // 每秒扣血百分比
+        attackRangeRatio: 0.3 // 攻击范围
+    };
+
+    // 游戏状态
+    let gameState = {
+        running: false,
+        lastTime: 0,
+        timeElapsed: 0,
+        result: null
+    };
+
+    // 实体对象
+    let player = { x: 0, y: 0 };
+    let dog = { x: 0, y: 0, hp: 100, active: false, hitCooldown: 0 };
+    let laser = { start: {x:0, y:0}, end: {x:0, y:0} };
+    let hitCount = 0;
+    
+    // 输入控制
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.key] = true);
+    window.addEventListener('keyup', e => keys[e.key] = false);
+
+    // 数学工具：点到线段的距离
+    function distToSegment(p, v, w) {
+        const l2 = (w.x - v.x)**2 + (w.y - v.y)**2;
+        if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+    }
+
+    // 加载图片资源
+    const dogImg = new Image();
+    dogImg.src = 'dog.gif';
+    const playerImg = new Image();
+    playerImg.src = 'player.gif';
+
+    function init() {
+        resetGame();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function resetGame() {
+        player.x = CONFIG.centerX;
+        player.y = CONFIG.centerY;
+        
+        // 随机选择眼睛位置（12点或3点）
+        const eyePosition = Math.floor(Math.random() * 2); // 0或1
+        if (eyePosition === 0) {
+            // 12点位置（上方），激光向右下射出
+            CONFIG.eyeOffset = { x: 0, y: -280 };
+            CONFIG.laserAngle = 0.6; // 向右下
+        } else {
+            // 3点位置（右侧），激光向左下射出
+            CONFIG.eyeOffset = { x: 280, y: 0 };
+            CONFIG.laserAngle = Math.PI - 0.95; // 向左下
+        }
+        
+        // 计算激光起点和终点
+        laser.start.x = CONFIG.centerX + CONFIG.eyeOffset.x;
+        laser.start.y = CONFIG.centerY + CONFIG.eyeOffset.y;
+        laser.end.x = laser.start.x + Math.cos(CONFIG.laserAngle) * CONFIG.laserLength;
+        laser.end.y = laser.start.y + Math.sin(CONFIG.laserAngle) * CONFIG.laserLength;
+        
+        // 狗从12个整点方向随机生成
+        const direction = Math.floor(Math.random() * 12); // 0-11
+        const angle = direction * (Math.PI / 6); // 每个方向30度
+        dog.x = CONFIG.centerX + Math.cos(angle) * (CONFIG.radius - 10);
+        dog.y = CONFIG.centerY + Math.sin(angle) * (CONFIG.radius - 10);
+        dog.hp = 100;
+        dog.hitCooldown = 0;
+        
+        hitCount = 0;
+        gameState.running = true;
+        gameState.timeElapsed = 0;
+        gameState.result = null;
+        gameState.lastTime = performance.now();
+        
+        document.getElementById('message').style.display = 'none';
+        updateUI();
+    }
+
+    function update(dt) {
+        if (!gameState.running) return;
+        gameState.timeElapsed += dt;
+
+        // --- 玩家移动 ---
+        let dx = 0, dy = 0;
+        if (keys['w'] || keys['ArrowUp']) dy -= 1;
+        if (keys['s'] || keys['ArrowDown']) dy += 1;
+        if (keys['a'] || keys['ArrowLeft']) dx -= 1;
+        if (keys['d'] || keys['ArrowRight']) dx += 1;
+        
+        // 归一化速度
+        if (dx !== 0 || dy !== 0) {
+            const length = Math.hypot(dx, dy);
+            dx /= length;
+            dy /= length;
+            player.x += dx * CONFIG.playerSpeed;
+            player.y += dy * CONFIG.playerSpeed;
+        }
+
+        // 限制玩家在场地内
+        const distFromCenter = Math.hypot(player.x - CONFIG.centerX, player.y - CONFIG.centerY);
+        if (distFromCenter > CONFIG.radius - CONFIG.playerRadius) {
+            const angle = Math.atan2(player.y - CONFIG.centerY, player.x - CONFIG.centerX);
+            player.x = CONFIG.centerX + Math.cos(angle) * (CONFIG.radius - CONFIG.playerRadius);
+            player.y = CONFIG.centerY + Math.sin(angle) * (CONFIG.radius - CONFIG.playerRadius);
+        }
+
+        // --- 狗的逻辑 ---
+        
+        // 1. 判断狗是否在激光上
+        const distToLaser = distToSegment(dog, laser.start, laser.end);
+        const onLaser = distToLaser < (CONFIG.dogRadius + 5); // 稍微宽容一点的判定范围
+
+        // 2. 狗移动 (追踪玩家)
+        let dogSpeed = onLaser ? CONFIG.dogSlowSpeed : CONFIG.dogBaseSpeed;
+        const vectorX = player.x - dog.x;
+        const vectorY = player.y - dog.y;
+        const distToPlayer = Math.hypot(vectorX, vectorY);
+        
+        if (distToPlayer > 0) {
+            dog.x += (vectorX / distToPlayer) * dogSpeed;
+            dog.y += (vectorY / distToPlayer) * dogSpeed;
+        }
+
+        // 3. 激光伤害逻辑
+        if (onLaser) {
+            dog.hp -= CONFIG.dps * dt;
+            if (dog.hp <= 0) {
+                dog.hp = 0;
+                gameOver(true, "挑战成功！狗已被消灭");
+            }
+        }
+
+        // 4. 判定失败条件 A: 被狗追上 (碰撞)
+        if (distToPlayer < (CONFIG.playerRadius + CONFIG.dogRadius)) {
+            gameOver(false, "失败：被狗追上了！");
+        }
+
+        // 5. 判定失败条件 B: 进入攻击范围 (3次)
+        // 攻击范围判定
+        const attackRange = CONFIG.laserLength * CONFIG.attackRangeRatio;
+        
+        if (dog.hitCooldown > 0) dog.hitCooldown -= dt;
+
+        if (distToPlayer < attackRange && dog.hitCooldown <= 0) {
+            hitCount++;
+            dog.hitCooldown = 2.0; // 受击后有2秒无敌时间/冷却，防止瞬间判定多次
+            if (hitCount >= 2) {
+                gameOver(false, "失败：受击次数过多！");
+            }
+        }
+
+        updateUI();
+    }
+
+    function draw() {
+        // 清空画布
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 1. 绘制场地 (黄色圈)
+        ctx.beginPath();
+        ctx.arc(CONFIG.centerX, CONFIG.centerY, CONFIG.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ffcc00';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // 2. 绘制激光
+        // 激光光晕
+        ctx.beginPath();
+        ctx.moveTo(laser.start.x, laser.start.y);
+        ctx.lineTo(laser.end.x, laser.end.y);
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+        ctx.lineWidth = 20;
+        ctx.stroke();
+        // 激光核心 (红黑)
+        ctx.beginPath();
+        ctx.moveTo(laser.start.x, laser.start.y);
+        ctx.lineTo(laser.end.x, laser.end.y);
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 6;
+        ctx.stroke();
+
+        // 3. 绘制眼睛 (激光源)
+        // 绘制眼睛发光效果
+        ctx.beginPath();
+        ctx.arc(laser.start.x, laser.start.y, 18, 0, Math.PI * 2);
+        const eyeGlow = ctx.createRadialGradient(laser.start.x, laser.start.y, 10, laser.start.x, laser.start.y, 18);
+        eyeGlow.addColorStop(0, 'rgba(255, 0, 0, 0.8)');
+        eyeGlow.addColorStop(1, 'rgba(255, 0, 0, 0)');
+        ctx.fillStyle = eyeGlow;
+        ctx.fill();
+        
+        // 绘制眼睛主体
+        ctx.beginPath();
+        ctx.arc(laser.start.x, laser.start.y, 12, 0, Math.PI * 2);
+        ctx.fillStyle = '#000';
+        ctx.fill();
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // 绘制眼睛瞳孔
+        ctx.beginPath();
+        ctx.arc(laser.start.x, laser.start.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff0000';
+        ctx.fill();
+
+        // 4. 绘制玩家 (player.gif)
+        if (playerImg.complete) {
+            ctx.drawImage(playerImg, player.x - CONFIG.playerRadius, player.y - CONFIG.playerRadius, CONFIG.playerRadius * 2, CONFIG.playerRadius * 2);
+        } else {
+            // 图片未加载完成时显示绿色点
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, CONFIG.playerRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#00ff00';
+            ctx.fill();
+        }
+
+        // 5. 绘制狗 (dog.gif) 并添加发光效果
+        // 绘制白色发光效果
+        ctx.beginPath();
+        ctx.arc(dog.x, dog.y, CONFIG.dogRadius + 8, 0, Math.PI * 2);
+        const gradient = ctx.createRadialGradient(dog.x, dog.y, CONFIG.dogRadius, dog.x, dog.y, CONFIG.dogRadius + 8);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // 绘制狗的图片
+        if (dogImg.complete) {
+            ctx.drawImage(dogImg, dog.x - CONFIG.dogRadius, dog.y - CONFIG.dogRadius, CONFIG.dogRadius * 2, CONFIG.dogRadius * 2);
+        } else {
+            // 图片未加载完成时显示白色点
+            ctx.beginPath();
+            ctx.arc(dog.x, dog.y, CONFIG.dogRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+        }
+
+        // 绘制狗的攻击范围 (淡红色虚线圈，仅供参考)
+        ctx.beginPath();
+        ctx.arc(dog.x, dog.y, CONFIG.laserLength * CONFIG.attackRangeRatio, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 50, 50, 0.1)';
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.setLineDash([]); // 重置虚线
+
+        // 绘制血条 (狗头顶)
+        ctx.fillStyle = 'red';
+        ctx.fillRect(dog.x - 15, dog.y - 20, 30, 4);
+        ctx.fillStyle = '#0f0';
+        ctx.fillRect(dog.x - 15, dog.y - 20, 30 * (dog.hp / 100), 4);
+    }
+
+    function gameLoop(timestamp) {
+        let dt = (timestamp - gameState.lastTime) / 1000;
+        gameState.lastTime = timestamp;
+
+        update(dt);
+        draw();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver(win, msg) {
+        gameState.running = false;
+        const el = document.getElementById('message');
+        el.innerText = msg;
+        el.style.color = win ? '#00ff00' : '#ff0000';
+        el.style.display = 'block';
+    }
+
+    function updateUI() {
+        document.getElementById('dogHp').innerText = Math.floor(dog.hp);
+        document.getElementById('hits').innerText = hitCount;
+        document.getElementById('time').innerText = gameState.timeElapsed.toFixed(1);
+        
+        // 动态改变血量颜色
+        const hpEl = document.getElementById('dogHp');
+        if (dog.hp < 30) hpEl.style.color = 'red';
+        else hpEl.style.color = 'white';
+        
+        const hitEl = document.getElementById('hits');
+        if (hitCount === 2) hitEl.style.color = 'orange';
+        else hitEl.style.color = 'white';
+    }
+
+    // 启动
+    init();
+
+</script>
+</body>
+</html>
