@@ -278,7 +278,7 @@
 
     // 实体对象
     let player = { x: 0, y: 0 };
-    let dog = { x: 0, y: 0, hp: 100, active: false, hitCooldown: 0 };
+    let dog = { x: 0, y: 0, hp: 100, active: false, hitCooldown: 0, laserTimer: 0 };
     let laser = { start: {x:0, y:0}, end: {x:0, y:0} };
     let hitCount = 0;
     let particles = [];
@@ -418,6 +418,7 @@
         dog.y = CONFIG.centerY + Math.sin(angle) * (CONFIG.radius - 10);
         dog.hp = 100;
         dog.hitCooldown = 0;
+        dog.laserTimer = 0;
         
         hitCount = 0;
         particles = [];
@@ -500,18 +501,31 @@
 
         // 激光伤害 & 粒子生成
         if (onLaser) {
-            dog.hp -= CONFIG.dps * dt;
+            dog.laserTimer += dt;
+            
+            // 每1秒扣除10%血量 (10点)
+            if (dog.laserTimer >= 1.0) {
+                dog.hp -= 10;
+                dog.laserTimer = 0;
+                
+                // 伤害爆发粒子效果
+                for (let i = 0; i < 10; i++) {
+                    particles.push(new Particle(dog.x, dog.y, '#ffffff'));
+                    particles.push(new Particle(dog.x, dog.y, '#ff3333'));
+                }
+            }
             
             // 生成火花粒子
             if (Math.random() < 0.3) { // 限制生成频率
                 particles.push(new Particle(dog.x, dog.y, '#ffaa00')); // 金色火花
                 particles.push(new Particle(dog.x, dog.y, '#ff4400')); // 橙红火花
             }
-
             if (dog.hp <= 0) {
                 dog.hp = 0;
                 gameOver(true, "挑战成功！狗已被消灭");
             }
+        } else {
+            dog.laserTimer = 0;
         }
 
         // 判定失败条件 A
