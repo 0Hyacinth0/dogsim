@@ -165,6 +165,7 @@
     </div>
     
     <div class="controls">WASD或方向键移动并引导狗进入激光</div>
+    <div class="controls" style="font-size: 12px;">按 P 键暂停/继续</div>
     <div class="controls" style="font-size: 12px; opacity: 0.7;">制作者: @倾茶茶 | 咻咻@梦江南</div>
     <button onclick="resetGame()">重新开始</button>
 
@@ -222,6 +223,7 @@
     // 游戏状态
     let gameState = {
         running: false,
+        paused: false,
         lastTime: 0,
         timeElapsed: 0,
         result: null,
@@ -237,7 +239,17 @@
     
     // 输入控制
     const keys = {};
-    window.addEventListener('keydown', e => keys[e.key] = true);
+    window.addEventListener('keydown', e => {
+        if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].indexOf(e.code) > -1) {
+            e.preventDefault();
+        }
+        keys[e.key] = true;
+        
+        if (e.key.toLowerCase() === 'p' && gameState.running) {
+            gameState.paused = !gameState.paused;
+            if (!gameState.paused) gameState.lastTime = performance.now();
+        }
+    });
     window.addEventListener('keyup', e => keys[e.key] = false);
 
     // 数学工具
@@ -287,6 +299,7 @@
         hitCount = 0;
         particles = [];
         gameState.running = true;
+        gameState.paused = false;
         gameState.timeElapsed = 0;
         gameState.result = null;
         gameState.shakeTime = 0;
@@ -307,7 +320,7 @@
     }
 
     function update(dt) {
-        if (!gameState.running) return;
+        if (!gameState.running || gameState.paused) return;
         gameState.timeElapsed += dt;
 
         // 震动逻辑
@@ -500,11 +513,24 @@
         ctx.fillRect(dog.x - 15, dog.y - 20, 30, 4);
         ctx.fillStyle = '#0f0';
         ctx.fillRect(dog.x - 15, dog.y - 20, 30 * (dog.hp / 100), 4);
+
+        // 暂停遮罩
+        if (gameState.paused) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.font = '40px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText("已暂停", CONFIG.centerX, CONFIG.centerY);
+        }
     }
 
     function gameLoop(timestamp) {
         let dt = (timestamp - gameState.lastTime) / 1000;
         gameState.lastTime = timestamp;
+        // 防止暂停或切出页面后 dt 过大导致穿墙
+        if (dt > 0.1) dt = 0.1;
+        
         update(dt);
         draw();
         requestAnimationFrame(gameLoop);
